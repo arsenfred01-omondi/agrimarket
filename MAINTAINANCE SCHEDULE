@@ -1,0 +1,125 @@
+Maintenance Schedule
+A routine for keeping FredAgriMarket secure, recoverable and healthy in production. Adjust owners and times to suit your team.
+Stack in scope: PHP 8.1+, MySQL 8 / MariaDB 10.4+, web server (Apache/Nginx), and front-end assets loaded from CDNs (Tailwind, Font Awesome, Google Fonts). The app has no Composer or npm dependencies.
+1. Backup & Recovery
+What to back up
+Asset	Why	Method
+Database (fredagrimarket)	Holds all users, products, orders and messages. It is the only data that cannot be recreated.	mysqldump
+Application code	Restorable from Git, but keep the deployed version tagged	Git tags / releases
+Server config (config.php overrides, environment variables, web server vhost, PHP settings)	Needed to rebuild quickly	Encrypted copy in a secure vault, never in Git
+Schedule
+Frequency	Task
+Daily (off-peak, e.g. 02:00 EAT)	Full database dump, compressed and encrypted
+Hourly (optional, if order volume is high)	Binary-log or incremental backup to reduce data loss
+Daily	Copy the dump off the server (cloud storage or a separate host)
+Before every deployment	Manual database dump and a Git tag of the current release
+Monthly	Test restore into a staging database and confirm tables and row counts
+Quarterly	Full disaster-recovery drill (rebuild a server from backups and docs)
+
+
+Example daily backup command
+mysqldump --single-transaction --routines --triggers \
+  -u backup_user -p fredagrimarket | gzip > fredagrimarket_$(date +%F).sql.gz
+--single-transaction takes a consistent snapshot of the InnoDB tables without locking the shop during the backup.
+Retention
+•	Daily backups: keep 14 days
+•	Weekly backups (Sunday): keep 8 weeks
+•	Monthly backups: keep 12 months
+Recovery procedure
+1.	Assess: identify what failed (server, database corruption, bad deployment, data deleted) and put the site in maintenance mode if needed.
+2.	Restore code: check out the last known-good Git tag on the server.
+3.	Restore config: reapply environment variables (DB_HOST, DB_NAME, DB_USER, DB_PASS) and web server settings.
+4.	Restore data: 
+5.	gunzip < fredagrimarket_YYYY-MM-DD.sql.gz | mysql -u root -p fredagrimarket
+6.	Verify: check the homepage, log in, browse the catalogue, view a recent order and api/produce.php. Place a test order and confirm stock decrements.
+7.	Reconcile: compare orders against any records after the backup time (payment confirmations, emails) and follow up manually.
+8.	Document: record the cause, time to restore and any data lost.
+Recovery targets
+Target	Goal
+RPO (maximum data loss)	24 hours (reduce to 1 hour with incremental backups)
+RTO (maximum downtime)	4 hours
+
+
+
+
+
+
+2. Dependency Updates
+The app has no package manager, so "dependencies" means the runtime stack and externally hosted assets.
+Component	Check frequency	Action
+PHP (security patch releases)	Monthly, and immediately for critical CVEs	Apply patch updates on staging first, then production
+PHP minor/major version	Every 6 months	Review supported versions; upgrade before the current version loses security support
+MySQL / MariaDB	Monthly for patches; yearly for version review	Take a backup first, then upgrade staging, then production
+Web server (Apache/Nginx) and OS packages	Weekly (enable automatic security updates)	Reboot in a maintenance window when kernel updates require it
+Tailwind CSS (CDN script)	Quarterly	Pin to a specific version rather than the floating CDN build, and check the layout after updating. For production, consider compiling Tailwind and serving a local CSS file
+Font Awesome / Google Fonts	Quarterly	Check for new versions, and add Subresource Integrity (SRI) hashes where supported
+Update workflow: back up → apply on staging → run the smoke test below → deploy to production in a quiet period → monitor for 24 hours.
+Smoke test: register, log in, search, add to cart, apply ORGANIC10, check out, view the receipt, then use the farmer dashboard and admin panel.
+
+
+
+
+
+3. Security Checks
+Frequency	Check
+Daily	Review web server and PHP error logs for repeated failed logins, unusual 403/419/500 errors and suspicious requests
+Weekly	Confirm that backups ran and are encrypted. Check for new unrecognised admin or farmer accounts
+Monthly	Apply OS and PHP security patches. Review admin and farmer users, and remove inactive ones. Check that setup_admin.php is not on the server. Review active promo codes. Confirm the HTTPS certificate is valid and auto-renewing
+Quarterly	Rotate the database password and any API or payment credentials. Review file permissions (config.php not world-readable, no writable code directories). Verify the database user has only the privileges it needs (not root). Run a vulnerability scan (e.g. OWASP ZAP) on staging
+Every 6 months	Review the code for the OWASP Top 10: confirm prepared statements, e() output escaping and CSRF checks are used in any new code. Check security headers (CSP, X-Frame-Options, HSTS)
+Annually	Full security review or external penetration test, and a review of user data handling and retention
+Always:
+•	Remove or change demo accounts (Farmer@123) before going live
+•	Never commit credentials to Git
+•	Investigate any security incident immediately, then record and fix the root cause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+4. Application Health Monitoring
+Continuous (automated, with alerts)
+What	How	Alert when
+Uptime	External monitor (e.g. UptimeRobot) pinging index.php and api/produce.php every 1–5 minutes	Down for more than 2 checks
+API response	Check api/produce.php returns HTTP 200 and valid JSON with count and data	Any 4xx/5xx or invalid JSON
+Response time	Track page load time	Consistently above 3 seconds
+Server resources	CPU, memory, disk	CPU or memory above 85%, disk above 80%
+Database	Connection count, slow queries, replication or backup status	Connection errors, or queries over 2 seconds
+SSL certificate	Expiry check	Fewer than 14 days remaining
+Error logs	Aggregate PHP and web server logs	Spike in 500 errors or PDOException messages
+Business health (check daily, or build into the admin panel)
+•	Orders stuck in pending for more than 24 hours
+•	Products with zero stock or farms awaiting verification
+•	Unread contact messages
+•	Sudden drops in order volume (may indicate a checkout fault)
+Regular reviews
+Frequency	Review
+Weekly	Error log trends, slow pages, uptime report
+Monthly	Resource usage trends and database growth. Clean up old session files if using file-based sessions
+Quarterly	Capacity planning, and database index and query review as order volume grows
+
+
+
+
+
+5. Summary Calendar
+Frequency	Tasks
+Continuous	Uptime, API, resource and error monitoring with alerts
+Daily	Database backup and off-site copy, log review, pending orders check
+Weekly	OS and web server updates, backup verification, account review
+Monthly	PHP and database patches, test restore, security checklist, resource review
+Quarterly	Credential rotation, front-end library review, vulnerability scan, recovery drill
+Every 6 months	PHP version review, code security review
+Annually	Full security audit or penetration test, backup and retention policy review
+________________________________________
+Last reviewed: ____________ | Maintained by: ____________
+
